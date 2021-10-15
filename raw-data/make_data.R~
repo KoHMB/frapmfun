@@ -1,0 +1,8 @@
+    filename <- dir("raw-data")
+    csvname <- stringr::str_c("../../raw-data/",filename[stringr::str_detect(filename,".csv")])
+    for(i in 1:length(csvname)){
+        tmpdata <- readr::read_csv(csvname[i])
+        objname <- stringr::str_replace(csvname,".csv","")        
+        assign(objname, tmpdata)
+        usethis::use_data(get(objname), overwrite=TRUE)
+    }

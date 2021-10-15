@@ -103,18 +103,18 @@ get_spict_data <- function(data_raw){
   data_spict <- list()
 
   # create catch data
-  obsC <- data %>% dplyr::filter(Fleet=="All") %>%
+  obsC <- data_raw %>% dplyr::filter(Fleet=="All") %>%
     select(Year, Value) %>%
     rename(timeC=Year, obsC=Value) %>%
     as.list()
 
   # create cpue data
-  name_fleet <- unique(data$Fleet)
+  name_fleet <- unique(data_raw$Fleet)
   name_fleet <- name_fleet[name_fleet!="All"]
   obsI <- list(timeI=list(), obsI=list())
 
   for(i in 1:length(name_fleet)){
-    tmpdata <- data %>% dplyr::filter(Fleet==name_fleet[i]) %>%
+    tmpdata <- data_raw %>% dplyr::filter(Fleet==name_fleet[i]) %>%
       select(Year, Value, CV) 
     obsI$timeI[[i]] <- tmpdata$Year
     obsI$obsI[[i]]  <- tmpdata$Value

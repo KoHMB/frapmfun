@@ -67,19 +67,22 @@ get_jabba_data <- function(data_raw){
   data_jabba$catch <- data_raw %>%
     dplyr::filter(Label=="Catch") %>%
     select(Year, Value) %>%
-    rename(catch=Value)
+    rename(catch=Value) %>%
+    as.data.frame()
 
   data_jabba$cpue <- data_raw %>%
     dplyr::filter(Label=="Index") %>%
     select(Year, Value, Fleet) %>%
-    pivot_wider(names_from=Fleet, values_from=Value)
+    pivot_wider(names_from=Fleet, values_from=Value) %>%
+    as.data.frame()
 
   data_jabba$se <- data_raw %>%
     dplyr::filter(Label=="Index") %>%
     select(Year, CV, Fleet) %>%
-    pivot_wider(names_from=Fleet, values_from=CV)
+    pivot_wider(names_from=Fleet, values_from=CV) %>%
+    as.data.frame()
 
-  data_jabba$stock <- str_c(unique(data_raw$Stock))
+  data_jabba$stock <- stringr::str_c(unique(data_raw$Stock))
 
   return(data_jabba)
 

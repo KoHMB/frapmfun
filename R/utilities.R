@@ -29,12 +29,10 @@
 #   Check Package:             'Ctrl + Shift + E'
 #   Test Package:              'Ctrl + Shift + T'
 
-hello <- function() {
-  print("Hello, world!")
-}
-
 
 # Spictの結果のリストから推定結果をtibbleにしてつなげる関数
+
+#' @export
 
 get_spict_parameter <- function(res_list, id_name="id"){
   res_tibble <- res_list %>%
@@ -58,6 +56,7 @@ get_spict_parameter <- function(res_list, id_name="id"){
 #' 共通データからjabba用のデータを作成する関数
 #'
 #' @param data_raw 共通のデータフォーマット。c("Year","Value","Stock","Label","Fleet","CV")の列名を持つ。"Label"は"Catch"または"Index"、Fleetは漁獲量データの場合は"All"、CPUEデータの場合は任意の漁業種名
+#' @export
 
 get_jabba_data <- function(data_raw){
   
@@ -90,6 +89,8 @@ get_jabba_data <- function(data_raw){
 #' 共通データからSPiCT用のデータを作成する関数
 #'
 #' @param data_raw 共通のデータフォーマット。c("Year","Value","Stock","Label","Fleet","CV")の列名を持つ。"Label"は"Catch"または"Index"、Fleetは漁獲量データの場合は"All"、CPUEデータの場合は任意の漁業種名
+#'
+#' @export 
 
 get_spict_data <- function(data_raw){
 

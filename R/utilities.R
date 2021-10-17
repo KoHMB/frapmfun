@@ -56,9 +56,10 @@ get_spict_parameter <- function(res_list, id_name="id"){
 #' 共通データからjabba用のデータを作成する関数
 #'
 #' @param data_raw 共通のデータフォーマット。c("Year","Value","Stock","Label","Fleet","CV")の列名を持つ。"Label"は"Catch"または"Index"、Fleetは漁獲量データの場合は"All"、CPUEデータの場合は任意の漁業種名
+#' @param is_se_NA seの項目にデータが入っているが、推定には使いたくないとき、seの値をNAで置き換える
 #' @export
 
-get_jabba_data <- function(data_raw){
+get_jabba_data <- function(data_raw, is_se_NA = TRUE){
   
   assertthat::assert_that(all(c("Year","Stock","Value","Label","Fleet","CV") %in% colnames(data_raw)))
   assertthat::assert_that(all(unique(data_raw$Label)==c("Catch","Index")))
@@ -81,6 +82,10 @@ get_jabba_data <- function(data_raw){
     select(Year, CV, Fleet) %>%
     pivot_wider(names_from=Fleet, values_from=CV) %>%
     as.data.frame()
+
+  if(is_se_NA==TRUE){
+    data_jabba$se[,-1] <- NA
+  }
 
   data_jabba$stock <- stringr::str_c(unique(data_raw$Stock))
 
@@ -125,4 +130,38 @@ get_spict_data <- function(data_raw){
   
   return(data_spict)
   
+}
+
+# data cloneしたら良くなるかと思ったけど、むしろ激遅
+
+data_clone <- function(data_jabba, n=10){
+    ddata <- data_jabba$cpue
+    ddata_no_year <- data_jabba$cpue %>% select(-Year)
+    for(i in 1:n){
+        ddata <- bind_cols(ddata, ddata_no_year)
+    }
+    data_jabba$cpue <- ddata
+
+    ddata <- data_jabba$se
+    ddata_no_year <- data_jabba$se %>% select(-Year)
+    for(i in 1:n){
+        ddata <- bind_cols(ddata, ddata_no_year)
+    }
+    data_jabba$se <- ddata    
+
+    return(data_jabba)
+}
+
+#'
+#' @export
+#' 
+
+get_m_from_BK <- function(BK){
+  
+  tmpfunc <- function(x) x^(-1/(x-1))
+  objfunc <- function(x, BK){
+    (tmpfunc(x)-BK)^2
+  }
+  res <- optimize(objfunc, c(1,2), BK)
+  return(res)
 }

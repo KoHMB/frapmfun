@@ -165,3 +165,116 @@ get_m_from_BK <- function(BK){
   res <- optimize(objfunc, c(1,2), BK)
   return(res)
 }
+
+
+plot_both <- function(res_spict, res_jabba){
+
+  alldata <- get_bothres(res_spict, res_jabba)
+
+  g1 <- alldata %>% dplyr::filter(stat%in%c("Biomass","F")) %>%
+    ggplot() +
+    geom_point(aes(x=year,y=est, color=model)) +
+    geom_line(aes(x=year,y=est, group=model, color=model)) +
+    geom_line(aes(x=year,y=ll, group=model, color=model),lty=2) +
+    geom_line(aes(x=year,y=ul, group=model, color=model),lty=2) +        
+    facet_wrap(.~stat,scale="free_y") +
+    theme_bw()
+
+  g2 <- alldata %>% dplyr::filter(is.na(year)) %>%
+    dplyr::filter(stat%in%c("r","K","theta","sigma.proc")) %>% 
+    ggplot() +
+    geom_point(aes(x=model,y=est, color=model)) +
+    geom_linerange(aes(x=model,ymax=ul, ymin=ll, color=model)) +
+    facet_wrap(.~stat,scale="free_y") + ylim(0,NA) +
+    theme_bw()  
+
+  require(patchwork)
+  return(list(g1,g2))
+
+  ## par(mfrow=c(2,1))
+  ## # plot biomass
+  ## plot(res_jabba$timeseries[,"mu","B"],type="b", ylim=c(0,1100))
+  ## lines(res_jabba$timeseries[,"lci","B"])
+  ## lines(res_jabba$timeseries[,"uci","B"])  
+  ## Best <- get.par("logB", res_spict, exp = TRUE) %>%
+  ##     as.data.frame() %>%
+  ##     rownames_to_column(var="year") %>%
+  ##     mutate(season=as.numeric(year)-floor(as.numeric(year))) %>%
+  ##     dplyr::filter(season==0)
+  ## points(Best$est,col=2,type="b")
+  ## lines(Best$ll,col=2)
+  ## lines(Best$ul,col=2)
+
+  ## # plot F
+  ## plot(res_jabba$timeseries[,"mu","F"],type="b",ylim=c(0,0.4))
+  ## lines(res_jabba$timeseries[,"lci","F"])
+  ## lines(res_jabba$timeseries[,"uci","F"])    
+  ## Best <- get.par("logF", res_spict, exp = TRUE) %>%
+  ##     as.data.frame() %>%
+  ##     rownames_to_column(var="year") %>%
+  ##     mutate(season=as.numeric(year)-floor(as.numeric(year))) %>%
+  ##     dplyr::filter(season==0)
+  ## points(Best$est,col=2,type="b")
+  ## lines(Best$ll,col=2)
+  ## lines(Best$ul,col=2)
+}
+
+#' derive summary results of both models
+#'
+#' @export
+
+get_bothres <- function(res_spict, res_jabba){
+  res_jabba_tidy <- get_jabba_res(res_jabba)
+  res_spict_tidy <- get_spict_res(res_spict)
+  bind_rows(res_jabba_tidy, res_spict_tidy)
+}
+
+get_jabba_res <- function(res_jabba){
+  
+  get_stat_ <- function(stat_name){
+    res_jabba$timeseries[,,stat_name] %>%
+      as.data.frame() %>%
+      rownames_to_column(var="year") 
+  }  
+
+  FBdata <- bind_rows(get_stat_("B") %>% mutate(stat="Biomass"),
+                      get_stat_("F") %>% mutate(stat="F")) %>%
+    rename(est=mu, ll=lci, ul=uci)
+
+  pardata <- res_jabba$estimates %>%
+    rownames_to_column(var="stat") %>%
+    as_tibble() %>%    
+    rename(est=mu, ll=lci, ul=uci) %>%
+    mutate(stat=ifelse(stat=="m","theta",stat)) %>%
+    mutate(stat=ifelse(stat=="sigma.proc","sdb",stat)) 
+
+  bind_rows(FBdata, pardata) %>% mutate(model="jabba")
+}
+
+get_spict_res <- function(res_spict){
+
+  get_stat_ <- function(stat_name){
+    get.par(stat_name, res_spict, exp = TRUE, CI=0.95) %>%
+      as.data.frame() %>%
+      rownames_to_column(var="year") %>%
+      mutate(season=as.numeric(year)-floor(as.numeric(year))) %>%
+      dplyr::filter(season==0)  %>%
+      select(-season)    
+  }
+
+  # biomass time series
+  FBdata <- bind_rows(get_stat_("logB") %>% mutate(stat="Biomass"),
+                      get_stat_("logF") %>% mutate(stat="F"))
+  
+  # important parameter
+  pardata <- sumspict.parest(res_spict, CI=0.95) %>%
+    as.data.frame() %>%
+    rownames_to_column() %>%
+    mutate(parameter=str_replace_all(rowname," ","")) %>%
+    select(-rowname, -log.est) %>%
+    rename(est=estimate, ll=cilow, ul=ciupp, stat=parameter) %>%
+    mutate(stat=ifelse(stat=="n","theta",stat))    
+
+  bind_rows(pardata,FBdata) %>% mutate(model="spict")
+
+}

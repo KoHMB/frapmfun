@@ -1,5 +1,5 @@
-set_spict <- function(filename){
-    data_raw<-read.csv(filename) #データの読み込みの指定
+set_spict <- function(filename=NULL, data_raw=NULL){
+    if(!is.null(filename)) data_raw<-read.csv(filename) #データの読み込みの指定
     inp  <- get_spict_data(data_raw)
     ncpue <- length(inp$timeI)
     inp$priors$logr <- c(log(0.5),5,0)
@@ -20,8 +20,8 @@ set_spict <- function(filename){
     return(inp)
 }
 
-set_jabba <- function(filename){
-    data_raw <- read.csv(filename)
+set_jabba <- function(filename=NULL, data_raw=NULL){
+    if(!is.null(filename)) data_raw <- read.csv(filename)
     # 共通フォーマットからjabba用データへの変換
     data_jabba <- get_jabba_data(data_raw, is_se_NA=TRUE)
 

@@ -1,7 +1,7 @@
-
 prod_OM <- function(
     r = 0.3,
     K = 1000,
+    m = 1.19,
     B1_ratio = 0.8,
     sigma_i = c(0.3, 0.3),
     sigma_p = 0.3,
@@ -37,7 +37,7 @@ prod_OM <- function(
        rename(Year=x, F=y) %>%
        bind_rows(tibble(Year=tail(F_year, n=1), F=tail(F_given, n=1)))
 
-    res <- left_join(res, F_data)
+    res <- left_join(res, F_data, by = "Year")
 
     set.seed(seed)
     res$Proc_error <- rnorm(nyear, -0.5*sigma_p^2, sigma_p)
@@ -46,8 +46,8 @@ prod_OM <- function(
 
     res$Biomass[1] <- K*B1_ratio
     for(i in 2:nyear){
-            res$Catch[i-1] <- res$Biomass[i-1]*res$F[i-1]
-            res$Biomass[i] <- (res$Biomass[i-1] + res$Biomass[i-1] * r * (1-res$Biomass[i-1]/K) - res$Catch[i-1]) * exp(res$Proc_error[i])
+        res$Catch[i-1] <- res$Biomass[i-1]*res$F[i-1]
+        res$Biomass[i] <- (res$Biomass[i-1] + res$Biomass[i-1] * r/(m-1) * (1-(res$Biomass[i-1]/K)^(m-1)) - res$Catch[i-1]) * exp(res$Proc_error[i])
     }
     res$Catch[nyear] <- res$Biomass[nyear]*res$F[nyear]    
 
@@ -75,7 +75,7 @@ plot_proddata <- function(dat_prod){
     g2 <- dat_prod$obs %>% ggplot() +
         geom_point(aes(x=Year, y=Value, col=Fleet)) +
         ggtitle("Observed catch and CPUE") + theme_bw()
-    (g1 + g2)
+    return(list(g1,g2))
 }
 
 

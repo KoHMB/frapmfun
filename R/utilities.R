@@ -223,9 +223,14 @@ plot_both <- function(res_spict, res_jabba){
 #'
 #' @export
 
-get_bothres <- function(res_spict, res_jabba){
-  res_jabba_tidy <- get_jabba_res(res_jabba)
-  res_spict_tidy <- get_spict_res(res_spict)
+get_bothres <- function(res_spict=NULL, res_jabba=NULL){
+
+  if(!is.null(res_spict) && class(res_spict)!="try-error") res_spict_tidy <- get_spict_res(res_spict)
+  else res_spict_tidy <- NULL
+    
+  if(!is.null(res_jabba) && class(res_jabba)!="try-error") res_jabba_tidy <- get_jabba_res(res_jabba)
+  else res_jabba_tidy <- NULL
+  
   bind_rows(res_jabba_tidy, res_spict_tidy)
 }
 
@@ -277,4 +282,22 @@ get_spict_res <- function(res_spict){
 
   bind_rows(pardata,FBdata) %>% mutate(model="spict")
 
+}
+
+#' @export
+#' 
+
+randam_walk <- function(init, rho, sigma, T, adjust.sigma=TRUE){
+  res <- 1:T
+  if(adjust.sigma==TRUE){
+    rand <- rnorm(T, 0, sqrt((1-rho^2))*sigma)
+  }
+  else{
+    rand <- rnorm(T, 0, sigma)    
+    }
+  res[1] <- init
+  for(i in 2:T){
+    res[i] <- res[i-1] * rho + rand[i]
+  }
+  return(tibble(year=1:T, value=res))
 }

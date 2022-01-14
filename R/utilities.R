@@ -162,8 +162,16 @@ get_m_from_BK <- function(BK){
   objfunc <- function(x, BK){
     (tmpfunc(x)-BK)^2
   }
-  res <- optimize(objfunc, c(1,2), BK)
+  res <- optimize(objfunc, c(1,100), BK)
   return(res)
+}
+
+#'
+#' @export
+#' 
+
+get_BK_from_m <- function(m){
+  m^(-1/(m-1))  
 }
 
 
@@ -268,8 +276,10 @@ get_spict_res <- function(res_spict){
   }
 
   # biomass time series
-  FBdata <- bind_rows(get_stat_("logB") %>% mutate(stat="Biomass"),
-                      get_stat_("logF") %>% mutate(stat="F"))
+  FBdata <- bind_rows(get_stat_("logB") %>% mutate(stat="B"),
+                      get_stat_("logF") %>% mutate(stat="F"),
+                      get_stat_("logBBmsy") %>% mutate(stat="BBmsy"),
+                      get_stat_("logFFmsy") %>% mutate(stat="FFmsy"))
   
   # important parameter
   pardata <- sumspict.parest(res_spict, CI=0.95) %>%
@@ -277,10 +287,13 @@ get_spict_res <- function(res_spict){
     rownames_to_column() %>%
     mutate(parameter=str_replace_all(rowname," ","")) %>%
     select(-rowname, -log.est) %>%
-    rename(est=estimate, ll=cilow, ul=ciupp, stat=parameter) %>%
-    mutate(stat=ifelse(stat=="n","theta",stat))    
+    rename(est=estimate, ll=cilow, ul=ciupp, stat=parameter)
 
-  bind_rows(pardata,FBdata) %>% mutate(model="spict")
+  otherdata <- bind_rows(tibble(stat="convergence",est=res_spict$opt$convergence),
+                         tibble(stat="number_se_nan",est=sum(is.nan(res_spict$sd))),
+                         tibble(stat="number_se_infinite",est=sum(is.infinite(res_spict$sd))))
+
+  bind_rows(pardata,FBdata,otherdata) %>% mutate(model="spict") %>% mutate(year=as.numeric(year))
 
 }
 
@@ -300,4 +313,185 @@ randam_walk <- function(init, rho, sigma, T, adjust.sigma=TRUE){
     res[i] <- res[i-1] * rho + rand[i]
   }
   return(tibble(year=1:T, value=res))
+}
+
+
+#'
+#' fit.spictのwrapper
+#'
+#' fit.spictを一度実行してから、初期値を変えてntrials分計算しなおし、その結果から目的関数の値が最も小さい結果を示す結果とそのときのインプットを出力する関数
+#'
+#' @details
+#' 1. デフォルトの初期値での計算の実施
+#' 2. 収束しているかどうかなどの結果の出力（`res$opt$convergence`、`all(is.finite(res$sd)`、`calc.om(res)`)）
+#' 3. ntrialsで指定した回数分、初期値を変えて再計算
+#' 4. そのときのntrials回分のパラメータ推定結果を出力
+#' 5. 目的関数の値が最も小さい結果が得られたときの初期値でもう一度計算
+#' 6. もう一度計算した結果について、収束しているかどうかなどの結果を出力（`res$opt$convergence`、`all(is.finite(res$sd)`、`calc.om(res)`)）
+#' 7. インプットデータと結果を返す
+#' 
+#' @export
+#' 
+
+fit.spict_tol <- function(inp, ntrials=30, seed=1){
+
+  set.seed(seed)
+  res<-fit.spict(inp)
+  check_spictres(res) 
+ 
+  fit<-check.ini(res,ntrials=ntrials) #本当はもっと大きい値のntrialsが必要．理想は？
+  obj <- as.data.frame(fit$check.ini$resmat)$obj #初期値を変えたtrialによって推定された値
+  obj[1] <- Inf
+  min.obj <- which.min(obj)
+  
+  trial <-str_c("Trial ",min.obj-1) #ここで自分の選んだtrial noを指定
+  cat("Trial ",trial," is used\n")
+  init_rev <-fit$check.ini$inimat[trial,,drop=F]
+  init_name <- colnames(init_rev)[-1]
+  for(i in 1:length(init_name)){
+    inp$ini[[init_name[i]]] <- as.numeric(init_rev[i+1])
+  }
+  ## rownames(b)<-NULL
+  ## inp$ini$logn<-b[,"logn"]
+  ## inp$ini$logK<-b[,"logK"]
+  ## inp$ini$logm<-b[,"logm"]
+  ## inp$ini$logq1<- b[,"logq1"]
+  ## inp$ini$logq2<- b[,"logq2"]
+  ## inp$ini$logsdb<- b[,"logsdb"]
+  ## inp$ini$logsdf<- b[,"logsdf"]
+  ## inp$ini$logsdi1<- b[,"logsdi1"]
+  ## inp$ini$logsdi2<- b[,"logsdi2"]
+  ## inp$ini$logsdc<- b[,"logsdc"]
+
+  res_rev <-fit.spict(inp)
+  check_spictres(res_rev)
+
+  return(list(inp=inp, res=res_rev))
+  
+}
+
+check_spictres <- function(res){
+  tribble(
+    ~test, ~result,
+    "is_converged", ifelse(res$opt$convergence==0,TRUE,FALSE), #これが0だったら，収束しているのでOK
+    "is_all_sd_finite", all(is.finite(res$sd))) %>% print() #これがTRUEだったら，推定されたパラメータの分散が全て有限であるということでOK
+  try(calc.om(res)) %>% print()
+  cat("objective function value",res$opt$objective,"\n")
+}
+
+#'
+#' 推定パラメータの一覧を簡単に表示する関数
+#'
+#' @export
+#'
+#' 
+
+quickplot <- function(res, fishr=NA, title_name=NA){
+    maxcatch <- max(res$inp$obsC)
+    dres <- get_spict_res(res)
+    maxyear  <- dres$year %>% max(na.rm=T)
+    est_par <- c("r","K","n","q","sdb","sdf","sdi","sdc","convergence","number_se_infinite")
+    derive_par <- c("B","F","BBmsy","FFmsy")
+
+    tmp <- dplyr::filter(dres, stat%in%derive_par & year==maxyear) %>%
+        mutate(stat2=str_c(stat,maxyear)) %>% select(-stat) %>%
+        rename(stat=stat2)
+
+    level_stat <- c(est_par, str_c(derive_par,maxyear))
+    dres_part <- bind_rows(dplyr::filter(dres, stat%in%est_par),tmp) %>%
+        mutate(stat=factor(stat,levels=level_stat))
+    
+    info <- tibble(stat=factor(c(rep("r",length(fishr)),"K","K","n","n","convergence","number_se_infinite"),levels=level_stat),est=c(fishr, maxcatch*c(10,100), 1,2,0,0))
+
+    dres_part %>% ggplot() +
+        geom_pointrange(aes(x=stat, y=est, ymin=ll, ymax=ul)) +
+        facet_wrap(.~stat, scale="free", ncol=8) + ylim(0,NA) +
+        geom_hline(data=info, aes(yintercept=est), color=2, lty=2) +
+        theme_bw(base_size=16) +
+        ggtitle(title_name)
+
+}
+
+do_grid_search <- function(inp1,
+                           shape   = c(0.7,1.01,1.19,2,3,4:10),
+                           r       = c(0.02,0.03,0.05,0.1,0.15,0.20,0.25,0.30),
+                           ntrials = 20){
+  tmpfunc <- function(x){ res <- x$value; names(res) <- x$stat_name; return(res)}
+  tmpfunc2 <- function(res){
+    if(class(res)!="try-error"){
+      parname <- c("r","K","q","theta","sdb","sdf","sdi","sdc")
+      get_spict_res(res) %>% dplyr::filter(is.na(year), stat %in% parname) %>%
+        select(est:stat) %>%
+        pivot_longer(cols=c(est,ll,ul)) %>%
+        mutate(stat_name=str_c(stat,name,sep="-")) %>%
+        select(-stat,-name) %>% tmpfunc() %>%
+        as.data.frame() %>% t()
+    }
+    else{
+      NULL
+    }
+  }
+
+  mat_par <- expand.grid(shape = shape, r = r)
+
+  res_model12 <- purrr::map_dfr(1:nrow(mat_par),function(x){
+    inp1$priors$logn <- c(log(mat_par$shape[x]),1e-3,1) 
+    inp1$priors$logr <- c(log(mat_par$r    [x]),1e-3,1) 
+    tmp <-try(fit.spict_tol(inp1, ntrials=ntrials)$res)
+    if(class(tmp)!="try-error"){
+      res <- cbind(mat_par[x,], tmpfunc2(tmp))
+      res$obj <- tmp$opt$objective
+      res$convergence <- tmp$opt$convergence
+      res$objective   <- tmp$opt$obj
+      res$unfinite_sd <- all(is.finite(tmp$sd))
+      res <- as_tibble(res) %>%
+        mutate(result=list(tmp))
+    }
+    else{
+      NULL
+    }
+    res
+  })
+
+  res_model12$BmsyK <- get_BK_from_m(res_model12$shape)
+
+  res_model12 <- res_model12 %>%
+    mutate(model_OK = (convergence==0 & unfinite_sd==TRUE))
+  min.obj <- res_model12$obj[res_model12$model_OK==TRUE] %>% min()
+  res_model12 <- res_model12 %>%
+    mutate(likely_model = factor(as.character((obj<min.obj+2)),levels=c("TRUE","FALSE")))
+  res_model12
+}
+
+plot_grid_result <- function(res_model12, inp){
+  
+  g_obj <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+    ggplot() + 
+    geom_point(aes(x=BmsyK, color=factor(r), y=obj, shape=likely_model), cex=3) +
+    theme_bw(base_size=16) +  ylab("Objective function value") +
+    scale_shape_manual(values=c(20,3))
+
+  g_K <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+    ggplot() + 
+    geom_point(aes(x=BmsyK, color=factor(r), y=get("K-est"), shape=likely_model), cex=3) +
+    theme_bw(base_size=16) + 
+    scale_shape_manual(values=c(20,3)) +
+    geom_hline(yintercept=max(inp$obsC)*10)
+
+  g_Kci <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+    ggplot() + 
+    geom_pointrange(aes(x=BmsyK, color=factor(r), y=get("K-est"),ymin=get("K-ll"),ymax=get("K-ul"),
+                        shape=likely_model), cex=3) +
+    theme_bw(base_size=16) +
+    facet_wrap(.~r) + ylab("Estimated K with 95% CI") +
+    scale_shape_manual(values=c(20,3)) +
+    geom_hline(yintercept=max(inp$obsC)*10, lty=2)
+
+  #res_model12 %>% ggplot() + 
+  #    geom_pointrange(aes(x=BmsyK, color=factor(r), y=get("r-est"), ymin=get("r-ll"),ymax=get("r-ul"),
+  #shape=unfinite_sd), cex=1) +
+  # theme_bw(base_size=16) + 
+  #  scale_shape_manual(values=c(3,20))
+  library(patchwork)
+  g_obj + g_Kci
 }

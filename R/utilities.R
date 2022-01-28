@@ -103,7 +103,7 @@ get_jabba_data <- function(data_raw, is_se_NA = TRUE){
 get_spict_data <- function(data_raw){
 
   assertthat::assert_that(all(c("Year","Stock","Value","Label","Fleet","CV") %in% colnames(data_raw)))
-  assertthat::assert_that(all(unique(data_raw$Label)==c("Catch","Index")))
+  assertthat::assert_that(all(unique(data_raw$Label)%in%c("Catch","Index")))
   
   data_spict <- list()
 
@@ -291,9 +291,11 @@ get_spict_res <- function(res_spict){
 
   otherdata <- bind_rows(tibble(stat="convergence",est=res_spict$opt$convergence),
                          tibble(stat="number_se_nan",est=sum(is.nan(res_spict$sd))),
-                         tibble(stat="number_se_infinite",est=sum(is.infinite(res_spict$sd))))
+                         tibble(stat="number_se_inf",est=sum(is.infinite(res_spict$sd))))
 
-  bind_rows(pardata,FBdata,otherdata) %>% mutate(model="spict") %>% mutate(year=as.numeric(year))
+  otherdata2 <- res_spict %>% get.par("logbkfrac",.,exp=TRUE) %>% as_tibble() %>% mutate(stat="bkfrac")
+
+  bind_rows(pardata,otherdata2, FBdata,otherdata) %>% mutate(model="spict") %>% mutate(year=as.numeric(year))
 
 }
 
@@ -333,40 +335,47 @@ randam_walk <- function(init, rho, sigma, T, adjust.sigma=TRUE){
 #' @export
 #' 
 
-fit.spict_tol <- function(inp, ntrials=30, seed=1){
+fit.spict_tol <- function(inp, ntrials=30, seed=1, out="both", silent=FALSE){
 
   set.seed(seed)
   res<-fit.spict(inp)
-  check_spictres(res) 
- 
-  fit<-check.ini(res,ntrials=ntrials) #本当はもっと大きい値のntrialsが必要．理想は？
-  obj <- as.data.frame(fit$check.ini$resmat)$obj #初期値を変えたtrialによって推定された値
-  obj[1] <- Inf
-  min.obj <- which.min(obj)
+  if(!silent) check_spictres(res) 
+
+  if(res$opt$convergence!=0){
+    fit<-check.ini(res,ntrials=ntrials) #本当はもっと大きい値のntrialsが必要．理想は？
+    obj <- as.data.frame(fit$check.ini$resmat)$obj #初期値を変えたtrialによって推定された値
+    obj[1] <- Inf
+    min.obj <- which.min(obj)
   
-  trial <-str_c("Trial ",min.obj-1) #ここで自分の選んだtrial noを指定
-  cat("Trial ",trial," is used\n")
-  init_rev <-fit$check.ini$inimat[trial,,drop=F]
-  init_name <- colnames(init_rev)[-1]
-  for(i in 1:length(init_name)){
-    inp$ini[[init_name[i]]] <- as.numeric(init_rev[i+1])
+    #trial <-str_c("Trial ",min.obj-1) #ここで自分の選んだtrial noを指定
+    #cat("Trial ",trial," is used\n")
+    #init_rev <-fit$check.ini$inimat[trial,,drop=F]
+    #init_name <- colnames(init_rev)[-1]
+    #for(i in 1:length(init_name)){
+    #  inp$ini[[init_name[i]]] <- as.numeric(init_rev[i+1])
+    #}
+    
+    ## rownames(b)<-NULL
+    ## inp$ini$logn<-b[,"logn"]
+    ## inp$ini$logK<-b[,"logK"]
+    ## inp$ini$logm<-b[,"logm"]
+    ## inp$ini$logq1<- b[,"logq1"]
+    ## inp$ini$logq2<- b[,"logq2"]
+    ## inp$ini$logsdb<- b[,"logsdb"]
+    ## inp$ini$logsdf<- b[,"logsdf"]
+    ## inp$ini$logsdi1<- b[,"logsdi1"]
+    ## inp$ini$logsdi2<- b[,"logsdi2"]
+    ## inp$ini$logsdc<- b[,"logsdc"]
+
+    fit$inpsens_list[[min.obj]]$do.sd.report <- TRUE
+    res_rev <-fit.spict(fit$inpsens_list[[min.obj]])
+    if(!silent) check_spictres(res_rev)
   }
-  ## rownames(b)<-NULL
-  ## inp$ini$logn<-b[,"logn"]
-  ## inp$ini$logK<-b[,"logK"]
-  ## inp$ini$logm<-b[,"logm"]
-  ## inp$ini$logq1<- b[,"logq1"]
-  ## inp$ini$logq2<- b[,"logq2"]
-  ## inp$ini$logsdb<- b[,"logsdb"]
-  ## inp$ini$logsdf<- b[,"logsdf"]
-  ## inp$ini$logsdi1<- b[,"logsdi1"]
-  ## inp$ini$logsdi2<- b[,"logsdi2"]
-  ## inp$ini$logsdc<- b[,"logsdc"]
+  else{
+    res_rev <- res
+  }
 
-  res_rev <-fit.spict(inp)
-  check_spictres(res_rev)
-
-  return(list(inp=inp, res=res_rev))
+  if(out=="both") return(list(inp=inp, res=res_rev)) else return(res_rev)
   
 }
 
@@ -375,7 +384,7 @@ check_spictres <- function(res){
     ~test, ~result,
     "is_converged", ifelse(res$opt$convergence==0,TRUE,FALSE), #これが0だったら，収束しているのでOK
     "is_all_sd_finite", all(is.finite(res$sd))) %>% print() #これがTRUEだったら，推定されたパラメータの分散が全て有限であるということでOK
-  try(calc.om(res)) %>% print()
+  #try(calc.om(res) %>% print()
   cat("objective function value",res$opt$objective,"\n")
 }
 
@@ -390,7 +399,7 @@ quickplot <- function(res, fishr=NA, title_name=NA){
     maxcatch <- max(res$inp$obsC)
     dres <- get_spict_res(res)
     maxyear  <- dres$year %>% max(na.rm=T)
-    est_par <- c("r","K","n","q","sdb","sdf","sdi","sdc","convergence","number_se_infinite")
+    est_par <- c("convergence","number_se_inf","r","K","n","bkfrac","q","sdb","sdf","sdi")
     derive_par <- c("B","F","BBmsy","FFmsy")
 
     tmp <- dplyr::filter(dres, stat%in%derive_par & year==maxyear) %>%
@@ -401,15 +410,18 @@ quickplot <- function(res, fishr=NA, title_name=NA){
     dres_part <- bind_rows(dplyr::filter(dres, stat%in%est_par),tmp) %>%
         mutate(stat=factor(stat,levels=level_stat))
     
-    info <- tibble(stat=factor(c(rep("r",length(fishr)),"K","K","n","n","convergence","number_se_infinite"),levels=level_stat),est=c(fishr, maxcatch*c(10,100), 1,2,0,0))
+    info <- tibble(stat=factor(c(rep("r",length(fishr)),"K","K","n","n","convergence","number_se_inf"),levels=level_stat),est=c(fishr, maxcatch*c(10,100), 1,2,0,0))
 
-    dres_part %>% ggplot() +
-        geom_pointrange(aes(x=stat, y=est, ymin=ll, ymax=ul)) +
-        facet_wrap(.~stat, scale="free", ncol=8) + ylim(0,NA) +
-        geom_hline(data=info, aes(yintercept=est), color=2, lty=2) +
-        theme_bw(base_size=16) +
-        ggtitle(title_name)
-
+    g <- dres_part %>% ggplot() +
+      geom_pointrange(aes(x=stat, y=est, ymin=ll, ymax=ul)) +
+      facet_wrap(.~stat, scale="free", ncol=2) + ylim(0,NA) +
+      geom_hline(data=info, aes(yintercept=est), color=2, lty=2) +
+      theme_bw(base_size=16) +
+      ggtitle(title_name) +
+      coord_flip() +
+      theme(axis.text.y=element_blank())
+      
+    return(g)
 }
 
 do_grid_search <- function(inp1,
@@ -433,11 +445,12 @@ do_grid_search <- function(inp1,
   }
 
   mat_par <- expand.grid(shape = shape, r = r)
-
+  res.list <- list()
   res_model12 <- purrr::map_dfr(1:nrow(mat_par),function(x){
+#  for(x in 1:nrow(mat_par)){
     inp1$priors$logn <- c(log(mat_par$shape[x]),1e-3,1) 
     inp1$priors$logr <- c(log(mat_par$r    [x]),1e-3,1) 
-    tmp <-try(fit.spict_tol(inp1, ntrials=ntrials)$res)
+    tmp <-try(fit.spict_tol(inp1, ntrials=ntrials, silent=TRUE)$res)
     if(class(tmp)!="try-error"){
       res <- cbind(mat_par[x,], tmpfunc2(tmp))
       res$obj <- tmp$opt$objective
@@ -448,7 +461,7 @@ do_grid_search <- function(inp1,
         mutate(result=list(tmp))
     }
     else{
-      NULL
+      res <- tibble(result=list())
     }
     res
   })
@@ -458,34 +471,50 @@ do_grid_search <- function(inp1,
   res_model12 <- res_model12 %>%
     mutate(model_OK = (convergence==0 & unfinite_sd==TRUE))
   min.obj <- res_model12$obj[res_model12$model_OK==TRUE] %>% min()
+  
   res_model12 <- res_model12 %>%
-    mutate(likely_model = factor(as.character((obj<min.obj+2)),levels=c("TRUE","FALSE")))
+    mutate(likely_model = as.numeric((obj<min.obj+2))) 
+  res_model12$likely_model[res_model12$obj==min.obj] <- 2
   res_model12
 }
 
-plot_grid_result <- function(res_model12, inp){
+plot_grid_result <- function(res_model12, inp, r_prior){
+
+  min_obj <- min(res_model12$objective[res_model12$model_OK==TRUE])
+  res_model12 <- res_model12 %>% dplyr::filter(model_OK==TRUE)  %>%
+    mutate(likely_model=factor(likely_model)) %>%
+    mutate(BmsyK=round(BmsyK,3))
   
-  g_obj <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+  g_obj <- res_model12 %>% 
     ggplot() + 
-    geom_point(aes(x=BmsyK, color=factor(r), y=obj, shape=likely_model), cex=3) +
+    geom_point(aes(x=r, shape=factor(BmsyK), y=obj), cex=3) +
+    geom_line(aes(x=r, group=factor(BmsyK), y=obj), cex=1) +      
     theme_bw(base_size=16) +  ylab("Objective function value") +
-    scale_shape_manual(values=c(20,3))
+    scale_shape_manual(values=c(3,20,21,2)) + theme(legend.position="top") 
 
-  g_K <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
-    ggplot() + 
-    geom_point(aes(x=BmsyK, color=factor(r), y=get("K-est"), shape=likely_model), cex=3) +
-    theme_bw(base_size=16) + 
-    scale_shape_manual(values=c(20,3)) +
-    geom_hline(yintercept=max(inp$obsC)*10)
+#  g_obj2 <- 
+#    ggplot() +
+#    geom_rect(aes(xmin=r_prior[2],xmax=r_prior[3],ymin=0.3,ymax=0.6),fill="gray") + 
+#    geom_point(data=res_model12, aes(x=r, y=BmsyK, cex=obj, shape=likely_model), cex=3) +
+#    theme_bw(base_size=16) +  ylab("Bmsy/K") +
+#    scale_shape_manual(values=c(3,20,21)) + theme(legend.position="top")
+    
 
-  g_Kci <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+  ## g_K <- res_model12 %>% dplyr::filter(model_OK==TRUE) %>%
+  ##   ggplot() + 
+  ##   geom_point(aes(x=BmsyK, color=factor(r), y=get("K-est"), shape=likely_model), cex=3) +
+  ##   theme_bw(base_size=16) + theme(legend.position="top") +
+  ##   scale_shape_manual(values=c(20,3)) +
+  ##   geom_hline(yintercept=max(inp$obsC)*10)
+
+  g_Kci <- res_model12 %>% 
     ggplot() + 
-    geom_pointrange(aes(x=BmsyK, color=factor(r), y=get("K-est"),ymin=get("K-ll"),ymax=get("K-ul"),
-                        shape=likely_model), cex=3) +
-    theme_bw(base_size=16) +
-    facet_wrap(.~r) + ylab("Estimated K with 95% CI") +
-    scale_shape_manual(values=c(20,3)) +
-    geom_hline(yintercept=max(inp$obsC)*10, lty=2)
+    geom_pointrange(aes(x=r, color=BmsyK, y=get("K-est"),ymin=get("K-ll"),ymax=get("K-ul"),
+                        shape=likely_model)) +
+    theme_bw(base_size=16) +theme(legend.position="top") +
+    facet_wrap(.~BmsyK, ncol=2) + ylab("Estimated K with 95% CI") +
+    scale_shape_manual(values=c(3,20,21)) + coord_cartesian(ylim=c(0,max(inp$obsC)*100)) +
+    geom_hline(yintercept=max(inp$obsC)*10, lty=2,col=2)
 
   #res_model12 %>% ggplot() + 
   #    geom_pointrange(aes(x=BmsyK, color=factor(r), y=get("r-est"), ymin=get("r-ll"),ymax=get("r-ul"),
@@ -494,4 +523,131 @@ plot_grid_result <- function(res_model12, inp){
   #  scale_shape_manual(values=c(3,20))
   library(patchwork)
   g_obj + g_Kci
+}
+
+doall <- function(data_raw, output_folder, species_name=NULL, r_prior=NULL){
+
+  if(!file.exists(output_folder)) dir.create(output_folder, recursive=TRUE)  
+
+  if(!is.null(species_name)){
+    # Fishbaseからの推定値を確認 ----
+    # species_name0 <- c("Clidoderma","asperrimum")
+    species_name  <- FishLife::Search_species(Genus=species_name0[1],Species=species_name0[2])$match_taxonomy[1]
+    bioinfo_org <- FishLife::Plot_taxa(species_name,mfrow=c(2,3))
+    # tm (age at maturity, log), tmax (maximum age, log), Lm (legnth at maturity, log)
+    tmp <- which(names(bioinfo_org[[1]]$Mean_pred)=="ln_r")
+    # rの情報を事前分布として用いるために保存しておく
+    r_prior <- (bioinfo_org[[1]]$Mean_pred[tmp]+(bioinfo_org[[1]]$Cov_pred[tmp,tmp])*c(1,-1.96,1.96)) %>% exp()
+  
+    # 既存の情報を用いて推定結果を更新することもできるみたいだが、最新のFishLifeではできないみたい
+    # Ynew_ij <- matrix( c("Loo"=log(52.6),"K"=log(0.366),"Winfinity"=NA,"tmax"=22,"tm"=4,"M"=NA,"Lm"=NA,"Temperature"=NA), nrow=1)
+    # bioinfo_update  <- Update_prediction(Taxon=species_name, Ynew_ij=Ynew_ij)
+  }
+
+  #----
+  inp   <- get_spict_data(data_raw)
+  ncpue <- length(inp$timeI)
+  ## 個体群動態に関するパラメータの設定
+  inp$priors$logr      <- c(log(0.5),5,0)
+  inp$priors$logn      <- c(log(1.19),1e-3,0)
+  inp$priors$logK      <- c(log(1000),5,0)
+  inp$priors$logbkfrac <- c(log(0.8),5,0)
+  inp$priors$logsdf    <- c(log(0.3),10,0)
+  inp$priors$logsdc    <- c(log(1e-3),1e-3,1) # 漁獲量の誤差は考慮しない
+  inp$priors$logbeta   <- c(log(1),2,0)
+  inp$priors$logsdb    <- c(log(0.3),10,0)
+  inp$priors$logsdi    <- c(log(0.3),10,0)
+  inp$priors$logalpha  <- c(log(1),2,0)
+  set_mapsdi           <- 0 # 複数のCPUEのあいだの観測誤差を同一にする（１）、しない（０）
+  mapsdi <- 1:ncpue
+  inp$priors$logq      <- rep(list(c(log(0.8),2,0)),ncpue)
+  if(set_mapsdi==0) inp$mapsdi <- mapsdi
+  inp$stabilise        <- 0 # If 1 wide uninformative priors are imposed on some parameters to stabilise optimisation (this happens inside the cpp file)
+  inp$dteuler          <- 1 # 内部でどのくらい細かく時間ステップを区切って計算するか。１年の離散型のプロダクションモデルを想定するなら1とする
+  inp<-check.inp(inp) # その他のもろもろのデフォルト設定がcheck.inp関数により与えられる  
+
+  #----
+  pdf(str_c(output_folder,"plotspict.ci.pdf"))
+  plotspict.ci(inp)
+  if(ncpue>1){
+    for(i in 2:ncpue) plotspict.ci(inp, ncpue=i)
+  }
+  dev.off()
+
+  #---- model0
+  # fit.spict_tol ; fit.spictのwrapperで自動的に収束判定の結果を出力したりしてくれます
+  res_model0 <- fit.spict_tol(inp, ntrials=20, seed=2)$res
+  # パラメータのプロット
+  g_model0 <- quickplot(res_model0, fishr=r_prior, title="Model0")
+  ggsave(g_model0, filename=str_c(output_folder,"model0.png"))
+  save(res_model0, file=str_c(output_folder,"res_model0.rda"))
+  # 時系列のプロット
+  #try(plot(res_model0))
+
+  #---- grid search
+  r_grid <- eval(r_grid_char)
+  res_model12 <- do_grid_search(inp, shape=c(0.7,1.01,1.19,1.6,2,4), r=r_grid, ntrials=10)
+  g_res12 <- plot_grid_result(res_model12, inp, r_prior)
+  print(g_res12)
+
+  ggsave(q_res12, path=str_c(output_folder,"model12.png"))
+  save(res_model0, file=str_c(output_folder,"res_model12.rda"))  
+
+
+  # 緩い事前分布(sigma=0.5?)つきの推定
+  inp3 <- inp
+  inp3$priors$logn <- c(log(1.19), 0.5, 1) 
+  inp3$priors$logr <- c(log(r_prior[1]),0.5,1)
+
+  tmp <- try(fit.spict_tol(inp3))
+  if(class(tmp)!="try-error"){
+    res_model3 <- tmp$res
+    inp_model3 <- tmp$inp
+  }
+
+  quickplot(res_model3, fishr=r_prior, title="Model3") %>% ggsave(path=str_c(output_folder,"model3_quick.png"))
+  pdf(str_c(output_folder,"model3_all.pdf"))
+  plot(res_model3)
+  plotspict.priors(res_model3)
+  dev.off()
+
+  #----
+
+  if(res_model3$opt$convergence==0){
+    pdf(str_c(output_folder,"model3_diag.pdf"))    
+    res_resi<-calc.osa.resid(res_model3)
+    plotspict.diagnostic(res_resi)
+
+    res_retro <- retro(res_model3,nretroyear=7)
+    try(plotspict.retro(res_retro)) #レトロ解析プロット
+    try(plotspict.retro.fixed(res_retro)) #推定パラメータに関するレトロプロット
+    try(mohns_rho(res_retro,what=c("FFmsy","BBmsy"))) #モーンズローの値
+    dev.off()
+  }  
+    
+}
+
+make_model0 <- function(data_raw, stabilise=0){
+    
+    inp   <- get_spict_data(data_raw)
+    ncpue <- length(inp$timeI)
+    ## 個体群動態に関するパラメータの設定
+    inp$priors$logr      <- c(log(0.5),5,0)
+    inp$priors$logn      <- c(log(1.19),1e-3,0)
+    inp$priors$logK      <- c(log(1000),5,0)
+    inp$priors$logbkfrac <- c(log(0.8),5,0)
+    inp$priors$logsdf    <- c(log(0.3),10,0)
+    inp$priors$logsdc    <- c(log(1e-3),1e-3,1) # 漁獲量の誤差は考慮しない
+    inp$priors$logbeta   <- c(log(1),2,0)
+    inp$priors$logsdb    <- c(log(0.3),10,0)
+    inp$priors$logsdi    <- c(log(0.3),10,0)
+    inp$priors$logalpha  <- c(log(1),2,0)
+    set_mapsdi           <- 0 # 複数のCPUEのあいだの観測誤差を同一にする（１）、しない（０）
+    mapsdi <- 1:ncpue
+    inp$priors$logq      <- rep(list(c(log(0.8),2,0)),ncpue)
+    if(set_mapsdi==0) inp$mapsdi <- mapsdi
+    inp$stabilise        <- stabilise # If 1 wide uninformative priors are imposed on some parameters to stabilise optimisation (this happens inside the cpp file)
+    inp$dteuler          <- 1 # 内部でどのくらい細かく時間ステップを区切って計算するか。１年の離散型のプロダクションモデルを想定するなら1とする
+    inp<-check.inp(inp) # その他のもろもろのデフォルト設定がcheck.inp関数により与えられる
+    return(inp)
 }

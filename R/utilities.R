@@ -162,7 +162,7 @@ get_m_from_BK <- function(BK){
   objfunc <- function(x, BK){
     (tmpfunc(x)-BK)^2
   }
-  res <- optimize(objfunc, c(1,100), BK)
+  res <- optimize(objfunc, c(0.01,100), BK)
   return(res)
 }
 
@@ -488,9 +488,10 @@ plot_grid_result <- function(res_model12, inp, r_prior){
   g_obj <- res_model12 %>% 
     ggplot() + 
     geom_point(aes(x=r, shape=factor(BmsyK), y=obj), cex=3) +
-    geom_line(aes(x=r, group=factor(BmsyK), y=obj), cex=1) +      
+    geom_line(aes(x=r, group=factor(BmsyK), y=obj, color=BmsyK), cex=1) +      
     theme_bw(base_size=16) +  ylab("Objective function value") +
-    scale_shape_manual(values=c(3,20,21,2)) + theme(legend.position="top") 
+    #    scale_shape_manual(values=c(3,20,21,2)) +
+    theme(legend.position="top") 
 
 #  g_obj2 <- 
 #    ggplot() +
@@ -650,4 +651,18 @@ make_model0 <- function(data_raw, stabilise=0){
     inp$dteuler          <- 1 # 内部でどのくらい細かく時間ステップを区切って計算するか。１年の離散型のプロダクションモデルを想定するなら1とする
     inp<-check.inp(inp) # その他のもろもろのデフォルト設定がcheck.inp関数により与えられる
     return(inp)
+}
+
+convert_vpa_pm_data <- function(res_vpa, stock_name="tmp"){
+  years <- colnames(res_vpa$naa) %>% as.numeric()
+  catch <- colSums(res_vpa$input$dat$caa[as.character(years)] *res_vpa$input$dat$waa[as.character(years)], na.rm=TRUE) %>% as.numeric()
+  catch <- tibble(Stock=stock_name, Year=years, Label="Catch", Fleet="All",
+                  Value=catch,CV=NA,Weight=1,Memo=NA)
+  
+  cpue <- colSums(res_vpa$baa[as.character(years)] *res_vpa$input$dat$waa[as.character(years)], na.rm=TRUE) %>% as.numeric()
+  cpue <- tibble(Stock=stock_name, Year=years, Label="Index", Fleet="VPA",
+                 Value=cpue,CV=NA,Weight=1,Memo=NA)
+
+  data_pm <- bind_rows(catch, cpue)
+  return(data_pm)
 }

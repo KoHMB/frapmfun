@@ -424,6 +424,9 @@ quickplot <- function(res, fishr=NA, title_name=NA){
     return(g)
 }
 
+#' @export
+#' 
+
 do_grid_search <- function(inp1,
                            shape   = c(0.7,1.01,1.19,2,3,4:10),
                            r       = c(0.02,0.03,0.05,0.1,0.15,0.20,0.25,0.30),
@@ -478,6 +481,10 @@ do_grid_search <- function(inp1,
   res_model12
 }
 
+#'
+#' @export
+#' 
+
 plot_grid_result <- function(res_model12, inp, r_prior){
 
   min_obj <- min(res_model12$objective[res_model12$model_OK==TRUE])
@@ -525,6 +532,13 @@ plot_grid_result <- function(res_model12, inp, r_prior){
   library(patchwork)
   g_obj + g_Kci
 }
+
+
+#'
+#' @export
+#'
+#'
+#' 
 
 doall <- function(data_raw, output_folder, species_name=NULL, r_prior=NULL){
 
@@ -628,6 +642,11 @@ doall <- function(data_raw, output_folder, species_name=NULL, r_prior=NULL){
     
 }
 
+
+#'
+#' @export
+#' 
+
 make_model0 <- function(data_raw, stabilise=0){
     
     inp   <- get_spict_data(data_raw)
@@ -666,3 +685,82 @@ convert_vpa_pm_data <- function(res_vpa, stock_name="tmp"){
   data_pm <- bind_rows(catch, cpue)
   return(data_pm)
 }
+
+#----
+
+#'
+#' @export
+#'
+#' 
+
+plot_barbiomass <- function(res){
+
+  K <- get.par("logK",res,exp=TRUE)[2]
+  r <- get.par("logr",res,exp=TRUE)[2]
+  m <- get.par("logn",res,exp=TRUE)[2]
+  Bmsy <- get.par("Bmsy",res)[2]
+  calc_sp <- function(B, K, r, m){
+    r/(m-1) * B * (1-(B/K)^(m-1))
+  }
+  
+  res3 <- get_spict_res(res) %>%
+    dplyr::filter(stat=="B") %>%
+    select(est, year) %>%
+    rename(biomass=est) %>%
+    mutate(year=as.numeric(year)) %>%
+    left_join(tibble(catch=res$inp$obsC, year=as.numeric(res$inp$timeC))) %>%
+    mutate(sp=calc_sp(biomass,K,r,m)) %>%
+    mutate(biomass0=biomass,
+           biomass1=biomass+sp,
+           biomass2=biomass+sp-catch)
+  res3$biomass3 <- c(res3$biomass[-1],NA)
+  res3 <- res3 %>% mutate(process_error=biomass3-biomass2)
+
+  #res4 <- bind_rows(mutate(res3, year2=year,      biomass=biomass0),
+  #                  mutate(res3, year2=year+0.25, biomass=biomass1),
+  #                  mutate(res3, year2=year+0.5 , biomass=biomass2)) %>%
+  #    arrange(year2)
+  cols <- c("Suplus_production"=2, "Catch"=3, "Process_error"=4)
+  res3 %>% dplyr::filter(!is.na(process_error)) %>%
+    ggplot() +
+    geom_area(aes(x=year,y=biomass), fill="gray")+
+    geom_point(aes(x=year,y=biomass),col=1) +
+    geom_segment(aes(x=year,xend=year,y=biomass,yend=biomass1),
+                 col=2,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.3 ,xend=year+0.3 ,y=biomass1,yend=biomass2),
+                 col=3,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.6,xend=year+0.6,y=biomass2,yend=biomass3),col=4,
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    theme_bw(base_size=14) + coord_cartesian(expand=0.2) +
+    geom_hline(aes(yintercept=0))
+  #    geom_segment(aes(x=year+0.75 ,xend=year+0.75 ,y=0,yend=process_error),
+  #                 col=4,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1) +
+  #    geom_segment(aes(x=year+0.5 ,xend=year+0.5 ,y=0,yend=-catch),
+  #                 col=3,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1) +
+  #    geom_segment(aes(x=year+0.25 ,xend=year+0.25 ,y=0,yend=sp),
+  #                 col=2,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)
+
+  cols <- c("Surplus_Production"=2, "Catch"=3, "Process_error"=4)
+  gg <- res3 %>% dplyr::filter(!is.na(process_error)) %>%
+    ggplot() +
+    geom_area(aes(x=year,y=biomass), fill="gray")+
+    scale_color_manual(name="Arrow",values=cols)+
+    geom_point(aes(x=year,y=biomass),col=1) +
+    geom_segment(aes(x=year,xend=year,y=biomass,yend=biomass1,color="Surplus_Production"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.3 ,xend=year+0.3 ,y=biomass1,yend=biomass2,color="Catch"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.6,xend=year+0.6,y=biomass2,yend=biomass3,color="Process_error"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    theme_bw(base_size=14) + coord_cartesian(expand=0.2) +
+    geom_hline(aes(yintercept=0)) + theme(legend.position="top") +
+    geom_hline(aes(yintercept=Bmsy),col=2,lty=2)
+  gg
+}
+
+#----
+size <- seq(from=100,to=3000,by=100)
+number_0 <- numeric()
+for(i in 1:length(size)){ x <- rmultinom(1000, size = size[i], prob = c(0.03,0.2,0.8,0.2,0.1)); number_0[i] <- sum(x==0)}
+
+

@@ -395,33 +395,46 @@ check_spictres <- function(res){
 #'
 #' 
 
-quickplot <- function(res, fishr=NA, title_name=NA){
-    maxcatch <- max(res$inp$obsC)
-    dres <- get_spict_res(res)
-    maxyear  <- dres$year %>% max(na.rm=T)
-    est_par <- c("convergence","number_se_inf","r","K","n","bkfrac","q","sdb","sdf","sdi")
-    derive_par <- c("B","F","BBmsy","FFmsy")
+quickplot <- function(res=NULL, res.list=NULL, fishr=NA, title_name=NA){
 
-    tmp <- dplyr::filter(dres, stat%in%derive_par & year==maxyear) %>%
-        mutate(stat2=str_c(stat,maxyear)) %>% select(-stat) %>%
-        rename(stat=stat2)
+  if(is.null(res)){
+    res <- res.list[[1]]
+  }
+  maxcatch <- max(res$inp$obsC)
+  est_par <- c("convergence","number_se_inf","r","K","n","bkfrac","q","sdb","sdf","sdi")
+  derive_par <- c("B","F","BBmsy","FFmsy")
 
-    level_stat <- c(est_par, str_c(derive_par,maxyear))
-    dres_part <- bind_rows(dplyr::filter(dres, stat%in%est_par),tmp) %>%
-        mutate(stat=factor(stat,levels=level_stat))
-    
-    info <- tibble(stat=factor(c(rep("r",length(fishr)),"K","K","n","n","convergence","number_se_inf"),levels=level_stat),est=c(fishr, maxcatch*c(10,100), 1,2,0,0))
+  if(!is.null(res.list)){
+    dres <- purrr::map_dfr(res.list,get_spict_res,.id="model")
+  }
+  else{
+    dres <- get_spict_res(res) %>% mutate(model=1)
+  }
 
-    g <- dres_part %>% ggplot() +
-      geom_pointrange(aes(x=stat, y=est, ymin=ll, ymax=ul)) +
-      facet_wrap(.~stat, scale="free", ncol=2) + ylim(0,NA) +
-      geom_hline(data=info, aes(yintercept=est), color=2, lty=2) +
-      theme_bw(base_size=16) +
-      ggtitle(title_name) +
-      coord_flip() +
-      theme(axis.text.y=element_blank())
-      
-    return(g)
+  maxyear  <- dres$year %>% max(na.rm=T)
+  tmp <- dplyr::filter(dres, stat%in%derive_par & year==maxyear) %>%
+    mutate(stat2=str_c(stat,maxyear)) %>% select(-stat) %>%
+    rename(stat=stat2)
+
+  level_stat <- c(est_par, str_c(derive_par,maxyear))
+  dres_part <- bind_rows(dplyr::filter(dres, stat%in%est_par),tmp) %>%
+    mutate(stat=factor(stat,levels=level_stat))
+  
+  info <- tibble(stat=factor(c(rep("r",length(fishr)),"K","K","n","n","convergence","number_se_inf"),levels=level_stat),est=c(fishr, maxcatch*c(10,100), 1,2,0,0))
+
+  g <- dres_part %>% ggplot() +
+    geom_pointrange(aes(x=model, y=est, ymin=ll, ymax=ul)) +
+    facet_wrap(.~stat, scale="free", ncol=2) + ylim(0,NA) +
+    geom_hline(data=info, aes(yintercept=est), color=2, lty=2) +
+    theme_bw(base_size=16) +
+    ggtitle(title_name) +
+    coord_flip()
+
+  if(is.null(res.list)){
+    g <- g + theme(axis.text.y=element_blank())
+  }
+  
+  return(g)
 }
 
 #' @export
@@ -693,7 +706,7 @@ convert_vpa_pm_data <- function(res_vpa, stock_name="tmp"){
 #'
 #' 
 
-plot_barbiomass <- function(res){
+plot_barbiomass <- function(res, with_biomass=TRUE){
 
   K <- get.par("logK",res,exp=TRUE)[2]
   r <- get.par("logr",res,exp=TRUE)[2]
@@ -716,32 +729,8 @@ plot_barbiomass <- function(res){
   res3$biomass3 <- c(res3$biomass[-1],NA)
   res3 <- res3 %>% mutate(process_error=biomass3-biomass2)
 
-  #res4 <- bind_rows(mutate(res3, year2=year,      biomass=biomass0),
-  #                  mutate(res3, year2=year+0.25, biomass=biomass1),
-  #                  mutate(res3, year2=year+0.5 , biomass=biomass2)) %>%
-  #    arrange(year2)
-  cols <- c("Suplus_production"=2, "Catch"=3, "Process_error"=4)
-  res3 %>% dplyr::filter(!is.na(process_error)) %>%
-    ggplot() +
-    geom_area(aes(x=year,y=biomass), fill="gray")+
-    geom_point(aes(x=year,y=biomass),col=1) +
-    geom_segment(aes(x=year,xend=year,y=biomass,yend=biomass1),
-                 col=2,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
-    geom_segment(aes(x=year+0.3 ,xend=year+0.3 ,y=biomass1,yend=biomass2),
-                 col=3,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
-    geom_segment(aes(x=year+0.6,xend=year+0.6,y=biomass2,yend=biomass3),col=4,
-                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
-    theme_bw(base_size=14) + coord_cartesian(expand=0.2) +
-    geom_hline(aes(yintercept=0))
-  #    geom_segment(aes(x=year+0.75 ,xend=year+0.75 ,y=0,yend=process_error),
-  #                 col=4,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1) +
-  #    geom_segment(aes(x=year+0.5 ,xend=year+0.5 ,y=0,yend=-catch),
-  #                 col=3,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1) +
-  #    geom_segment(aes(x=year+0.25 ,xend=year+0.25 ,y=0,yend=sp),
-  #                 col=2,arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)
-
   cols <- c("Surplus_Production"=2, "Catch"=3, "Process_error"=4)
-  gg <- res3 %>% dplyr::filter(!is.na(process_error)) %>%
+  gg1 <- res3 %>% dplyr::filter(!is.na(process_error)) %>%
     ggplot() +
     geom_area(aes(x=year,y=biomass), fill="gray")+
     scale_color_manual(name="Arrow",values=cols)+
@@ -755,12 +744,21 @@ plot_barbiomass <- function(res){
     theme_bw(base_size=14) + coord_cartesian(expand=0.2) +
     geom_hline(aes(yintercept=0)) + theme(legend.position="top") +
     geom_hline(aes(yintercept=Bmsy),col=2,lty=2)
-  gg
+
+  gg2 <- res3 %>% dplyr::filter(!is.na(process_error)) %>%
+    ggplot() +
+    scale_color_manual(name="Arrow",values=cols)+
+    geom_segment(aes(x=year,xend=year,y=0,yend=sp,color="Surplus_Production"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.3 ,xend=year+0.3 ,y=0,yend=-catch,color="Catch"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    geom_segment(aes(x=year+0.6,xend=year+0.6,y=0,yend=process_error,color="Process_error"),
+                 arrow=arrow(type="closed",length=unit(0.20,"cm")),lwd=1)+
+    theme_bw(base_size=14) + coord_cartesian(expand=0.2) +
+    geom_hline(aes(yintercept=0)) + theme(legend.position="top")  +
+    xlab("Year") + ylab("Diff")
+
+  list(with_biomass=gg1, only_diff=gg2)
+
 }
-
-#----
-size <- seq(from=100,to=3000,by=100)
-number_0 <- numeric()
-for(i in 1:length(size)){ x <- rmultinom(1000, size = size[i], prob = c(0.03,0.2,0.8,0.2,0.1)); number_0[i] <- sum(x==0)}
-
 

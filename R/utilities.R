@@ -498,7 +498,8 @@ do_grid_search <- function(inp1,
 #' @export
 #' 
 
-plot_grid_result <- function(res_model12, inp, r_prior){
+plot_grid_result <- function(res_model12, inp, r_prior,
+                             ylim2 = NULL){
 
   min_obj <- min(res_model12$objective[res_model12$model_OK==TRUE])
   res_model12 <- res_model12 %>% dplyr::filter(model_OK==TRUE)  %>%
@@ -534,7 +535,8 @@ plot_grid_result <- function(res_model12, inp, r_prior){
                         shape=likely_model)) +
     theme_bw(base_size=16) +theme(legend.position="top") +
     facet_wrap(.~BmsyK, ncol=2) + ylab("Estimated K with 95% CI") +
-    scale_shape_manual(values=c(3,20,21)) + coord_cartesian(ylim=c(0,max(inp$obsC)*100)) +
+    scale_shape_manual(values=c(3,20,21)) +
+    coord_cartesian(ylim = ifelse(is.null(ylim2), c(0,max(inp$obsC)*100), ylim2)) +
     geom_hline(yintercept=max(inp$obsC)*10, lty=2,col=2)
 
   #res_model12 %>% ggplot() + 
